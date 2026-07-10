@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>secureChat — Anonymous P2P Video &amp; File Share</title>
+<!-- Vendored, version-pinned, integrity-checked. No CDN is contacted at request time. -->
+<script src="vendor/tailwind-play-cdn.3.4.17.js" integrity="sha384-igm5BeiBt36UU4gqwWS7imYmelpTsZlQ45FZf+XBn9MuJbn4nQr7yx1yFydocC/K"></script>
+<script src="vendor/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU"></script>
+<style>
+  html, body { height: 100%; background: #0b0f14; }
+  video { background: #000; }
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body class="text-slate-100 antialiased">
+
+<div class="min-h-screen flex flex-col safe-top safe-bottom">
+
+  <header class="px-4 py-3 flex items-center justify-between border-b border-slate-800">
+    <div class="flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+      <h1 class="font-semibold tracking-tight">secureChat</h1>
+    </div>
+    <div id="statusBadge" class="text-xs px-2 py-1 rounded-full bg-slate-800 text-slate-400">idle</div>
+  </header>
+
+  <main class="flex-1 flex flex-col">
+
+    <!-- ===================== SCREEN: Landing (create/join) ===================== -->
+    <section id="screen-landing" class="flex-1 flex flex-col items-center justify-center px-6 gap-6">
+      <div class="text-center max-w-sm">
+        <h2 class="text-2xl font-bold mb-2">Private, peer-to-peer.</h2>
+        <p class="text-slate-400 text-sm">No accounts, no history, no server storage. Media and files travel directly device-to-device.</p>
+      </div>
+
+      <button id="btnCreateRoom" class="w-full max-w-sm bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-900 font-semibold rounded-xl py-3 text-base">
+        Create Room
+      </button>
+
+      <div class="w-full max-w-sm flex items-center gap-3 text-slate-500 text-xs">
+        <div class="h-px bg-slate-800 flex-1"></div>OR<div class="h-px bg-slate-800 flex-1"></div>
+      </div>
+
+      <form id="formJoinRoom" class="w-full max-w-sm flex gap-2">
+        <input id="inputRoomCode" type="text" maxlength="6" autocomplete="off" autocapitalize="characters"
+               placeholder="ROOM CODE"
+               class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-center tracking-widest uppercase placeholder:text-slate-600 focus:outline-none focus:border-emerald-500" />
+        <button type="submit" class="bg-slate-800 hover:bg-slate-700 rounded-xl px-4 font-semibold">Join</button>
+      </form>
+
+      <p id="landingError" class="text-rose-400 text-sm hidden"></p>
+
+      <p class="text-slate-600 text-xs max-w-sm text-center leading-relaxed">
+        "Anonymous" means no accounts or logs — the signaling server briefly sees connection IPs in memory only, never stored.
+      </p>
+    </section>
+
+    <!-- ===================== SCREEN: Waiting room (room created, QR) ===================== -->
+    <section id="screen-waiting" class="hidden flex-1 flex flex-col items-center justify-center px-6 gap-5">
+      <p class="text-slate-400 text-sm">Share this code or QR with the other device</p>
+
+      <div id="qrCanvas" class="bg-white p-3 rounded-2xl"></div>
+
+      <div class="text-4xl font-mono font-bold tracking-[0.3em]" id="roomCodeDisplay">------</div>
+
+      <button id="btnCopyLink" class="text-sm text-emerald-400 underline">Copy join link</button>
+
+      <div class="flex items-center gap-2 text-slate-400 text-sm">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+        Waiting for peer to join…
+      </div>
+
+      <button id="btnCancelWaiting" class="text-slate-500 text-sm underline">Cancel</button>
+    </section>
+
+    <!-- ===================== SCREEN: Call ===================== -->
+    <section id="screen-call" class="hidden flex-1 flex flex-col">
+
+      <div class="relative flex-1 bg-black">
+        <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+        <video id="localVideo" autoplay playsinline muted class="absolute bottom-4 right-4 w-28 h-40 rounded-lg object-cover border border-slate-700 shadow-lg"></video>
+
+        <div id="sasBadge" class="hidden absolute top-4 left-4 right-4 bg-slate-900/90 backdrop-blur rounded-xl px-4 py-3 text-xs">
+          <div class="text-slate-400 mb-1">Verification code — confirm it matches your peer's screen. If it doesn't, disconnect.</div>
+          <div id="sasCode" class="font-mono text-lg tracking-widest text-emerald-400">— — —</div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-center gap-4 py-4 bg-slate-950 border-t border-slate-800">
+        <button id="btnToggleMic" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">🎤</button>
+        <button id="btnToggleCam" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">📷</button>
+        <button id="btnSendFile" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">📎</button>
+        <button id="btnEndCall" class="w-14 h-14 rounded-full bg-rose-600 flex items-center justify-center text-xl">✕</button>
+      </div>
+
+      <input type="file" id="fileInput" class="hidden" multiple />
+    </section>
+
+  </main>
+</div>
+
+<!-- ===================== File transfer popup (centered overlay) ===================== -->
+<div id="transferOverlay" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6">
+  <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold text-sm">File Transfers</h3>
+      <button id="btnCloseTransfers" class="text-slate-400 hover:text-slate-200 text-lg leading-none">✕</button>
+    </div>
+    <div id="transfers" class="max-h-[60vh] overflow-y-auto space-y-2"></div>
+  </div>
+</div>
+
+<template id="transferItemTemplate">
+  <div class="transfer-item bg-slate-900 rounded-lg px-3 py-2 text-xs">
+    <div class="flex justify-between mb-1">
+      <span class="transfer-name truncate max-w-[70%]"></span>
+      <span class="transfer-pct text-slate-400">0%</span>
+    </div>
+    <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div class="transfer-bar h-full bg-emerald-500 rounded-full" style="width:0%"></div>
+    </div>
+    <div class="transfer-action mt-1"></div>
+  </div>
+</template>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
