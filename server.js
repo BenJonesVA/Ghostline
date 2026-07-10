@@ -72,17 +72,39 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ICE server configuration. STUN is always included; TURN is appended only
 // if configured via env vars, so the app runs STUN-only with no config.
 // ---------------------------------------------------------------------------
+// TURN credential TTL for the use-auth-secret (time-limited) scheme below.
+// Short enough that a leaked credential is useless soon after; long enough to
+// outlast any single call setup.
+const TURN_CREDENTIAL_TTL_SECONDS = 3600;
+
+// Cross-network calls (e.g. both peers behind carrier-grade NAT or a
+// restrictive firewall) can fail on STUN alone — TURN relays the media as a
+// fallback. Two ways to supply it:
+//   - TURN_SECRET set: derive short-lived HMAC credentials per session
+//     (coturn's `use-auth-secret` mode — recommended, avoids a long-lived
+//     shared password ever leaving the server).
+//   - TURN_USERNAME/TURN_CREDENTIAL set: static long-term credentials
+//     (simpler, fine for a trusted/self-hosted deployment).
 function buildIceServers() {
   const iceServers = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   ];
-  if (process.env.TURN_URL) {
+
+  if (!process.env.TURN_URL) return iceServers;
+  const urls = process.env.TURN_URL.split(',').map((u) => u.trim()).filter(Boolean);
+
+  if (process.env.TURN_SECRET) {
+    const username = `${Math.floor(Date.now() / 1000) + TURN_CREDENTIAL_TTL_SECONDS}`;
+    const credential = crypto.createHmac('sha1', process.env.TURN_SECRET).update(username).digest('base64');
+    iceServers.push({ urls, username, credential });
+  } else if (process.env.TURN_USERNAME) {
     iceServers.push({
-      urls: process.env.TURN_URL,
-      username: process.env.TURN_USERNAME || undefined,
-      credential: process.env.TURN_CREDENTIAL || undefined,
+      urls,
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_CREDENTIAL,
     });
   }
+
   return iceServers;
 }
 

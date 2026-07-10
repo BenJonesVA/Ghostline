@@ -3,96 +3,240 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>secureChat — Anonymous P2P Video &amp; File Share</title>
+<title>Ghostline — Anonymous P2P Video &amp; File Share</title>
 <!-- Vendored, version-pinned, integrity-checked. No CDN is contacted at request time. -->
 <script src="vendor/tailwind-play-cdn.3.4.17.js" integrity="sha384-igm5BeiBt36UU4gqwWS7imYmelpTsZlQ45FZf+XBn9MuJbn4nQr7yx1yFydocC/K"></script>
 <script src="vendor/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU"></script>
 <style>
-  html, body { height: 100%; background: #0b0f14; }
+  :root {
+    color-scheme: dark;
+    --bg: #1c1915;
+    --sheet: #24201a;
+    --surface: rgba(255,255,255,0.06);
+    --surface-strong: rgba(255,255,255,0.1);
+    --border: rgba(255,255,255,0.14);
+    --border-strong: rgba(255,255,255,0.22);
+    --text: #f4f0e8;
+    --text-dim: #a8a091;
+    --text-faint: #6f675a;
+    --accent: #2fb888;
+    --accent-bright: #3fd39b;
+    --accent-ink: #0e2b20;
+    --accent-wash: rgba(47,184,136,0.12);
+    --danger: #e0616b;
+    --danger-bright: #ef8b93;
+    --danger-wash: rgba(224,97,107,0.12);
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden; /* single-screen app shell — no page-level scroll on any device */
+    overscroll-behavior: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  /* 100vh on mobile browsers includes space behind the address bar, which is
+     what caused the call screen to require scrolling to see the whole video.
+     dvh tracks the *actual* visible viewport; vh is kept only as a fallback
+     for browsers that don't support dvh yet. */
+  .app-shell {
+    height: 100vh;
+    height: 100dvh;
+  }
   video { background: #000; }
   .safe-top { padding-top: env(safe-area-inset-top); }
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .font-mono-gl { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace; }
+  .icon { width: 1em; height: 1em; display: inline-block; }
+
+  .gl-pill { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .7rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: .75rem; font-weight: 600; color: var(--text-dim); }
+  .gl-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); flex-shrink: 0; }
+
+  .gl-btn-primary { width: 100%; padding: 1rem; border: none; border-radius: 1rem; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 1rem; box-shadow: 0 12px 28px -14px rgba(47,184,136,.6); cursor: pointer; }
+  .gl-btn-ghost { width: 100%; padding: .9rem; border: 1px solid var(--border-strong); border-radius: 1rem; background: transparent; color: var(--text-dim); font-weight: 600; cursor: pointer; }
+  .gl-btn-quiet { width: 100%; padding: .85rem; border: none; border-radius: 1rem; background: transparent; color: var(--text-faint); font-weight: 600; cursor: pointer; }
+
+  .gl-divider { flex: 1; height: 1px; background: var(--border); }
+
+  .gl-otp-row { display: flex; gap: .5rem; }
+  .gl-otp-box { flex: 1; min-width: 0; height: 52px; border-radius: 12px; border: 1.5px solid var(--border-strong); background: var(--surface); text-align: center; font-size: 1.3rem; font-weight: 600; color: var(--text); text-transform: uppercase; }
+  .gl-otp-box:focus { outline: none; border-color: var(--accent-bright); background: var(--accent-wash); }
+  .gl-otp-box.error { border-color: var(--danger); background: var(--danger-wash); }
+
+  .gl-card { background: var(--sheet); border: 1px solid var(--border); border-radius: 1.25rem; }
+  .gl-sheet { background: var(--sheet); border-top: 1px solid var(--border); }
+  .gl-sheet-handle { width: 36px; height: 4px; border-radius: 999px; background: var(--border-strong); margin: 0 auto; }
+
+  .gl-ctrl-btn { width: 3rem; height: 3rem; border-radius: 999px; background: var(--surface); color: var(--text-dim); display: flex; align-items: center; justify-content: center; font-size: 1.15rem; border: none; cursor: pointer; }
+  @media (min-width: 640px) { .gl-ctrl-btn { width: 3.5rem; height: 3.5rem; } }
+  .gl-ctrl-btn.muted { background: var(--danger-wash); color: var(--danger-bright); }
+  .gl-ctrl-btn.end-call { background: var(--danger); color: #fff; box-shadow: 0 8px 20px -8px rgba(224,97,107,.7); }
+
+  .gl-input { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: .65rem 1rem; color: var(--text); }
+  .gl-input:focus { outline: none; border-color: var(--accent-bright); }
+  .gl-input::placeholder { color: var(--text-faint); }
+  .gl-select { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: .65rem 1rem; color: var(--text); font-size: .9rem; }
+  .gl-label { font-size: .7rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); }
+  .gl-close-btn { width: 1.75rem; height: 1.75rem; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: var(--surface); color: var(--text-dim); border: none; cursor: pointer; }
 </style>
 </head>
-<body class="text-slate-100 antialiased">
+<body class="antialiased">
 
-<div class="min-h-screen flex flex-col safe-top safe-bottom">
+<div class="app-shell flex flex-col safe-top safe-bottom overflow-hidden">
 
-  <header class="px-4 py-3 flex items-center justify-between border-b border-slate-800">
+  <header class="px-4 py-3 flex items-center justify-between border-b" style="border-color: var(--border)">
     <div class="flex items-center gap-2">
-      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-      <h1 class="font-semibold tracking-tight">secureChat</h1>
+      <span class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: var(--accent-wash); color: var(--accent-bright)">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/></svg>
+      </span>
+      <h1 class="font-semibold tracking-tight text-[15px]">Ghostline</h1>
     </div>
-    <div id="statusBadge" class="text-xs px-2 py-1 rounded-full bg-slate-800 text-slate-400">idle</div>
+    <div id="statusBadge" class="gl-pill">
+      <span id="statusDot" class="gl-dot" style="background:#6f675a"></span>
+      <span id="statusText">idle</span>
+    </div>
   </header>
 
-  <main class="flex-1 flex flex-col">
+  <main class="flex-1 flex flex-col min-h-0">
 
     <!-- ===================== SCREEN: Landing (create/join) ===================== -->
-    <section id="screen-landing" class="flex-1 flex flex-col items-center justify-center px-6 gap-6">
-      <div class="text-center max-w-sm">
-        <h2 class="text-2xl font-bold mb-2">Private, peer-to-peer.</h2>
-        <p class="text-slate-400 text-sm">No accounts, no history, no server storage. Media and files travel directly device-to-device.</p>
+    <section id="screen-landing" class="flex-1 flex flex-col justify-center px-6 py-6 gap-6 min-h-0 overflow-y-auto">
+      <div class="max-w-sm mx-auto w-full">
+        <h2 class="text-4xl leading-[1.05] font-bold tracking-tight mb-3">Private,<br>peer&#8209;to&#8209;peer.</h2>
+        <p class="text-sm leading-relaxed max-w-xs" style="color: var(--text-dim)">A direct line between you and one other person. No accounts, no servers holding your video, messages, or files.</p>
       </div>
 
-      <button id="btnCreateRoom" class="w-full max-w-sm bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-900 font-semibold rounded-xl py-3 text-base">
-        Create Room
+      <button id="btnCreateRoom" class="gl-btn-primary max-w-sm mx-auto w-full flex items-center justify-center gap-2">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Create room
       </button>
 
-      <div class="w-full max-w-sm flex items-center gap-3 text-slate-500 text-xs">
-        <div class="h-px bg-slate-800 flex-1"></div>OR<div class="h-px bg-slate-800 flex-1"></div>
+      <div class="max-w-sm mx-auto w-full flex items-center gap-3">
+        <div class="gl-divider"></div>
+        <span class="text-[11px] font-semibold tracking-widest uppercase" style="color: var(--text-faint)">or join</span>
+        <div class="gl-divider"></div>
       </div>
 
-      <form id="formJoinRoom" class="w-full max-w-sm flex gap-2">
-        <input id="inputRoomCode" type="text" maxlength="6" autocomplete="off" autocapitalize="characters"
-               placeholder="ROOM CODE"
-               class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-center tracking-widest uppercase placeholder:text-slate-600 focus:outline-none focus:border-emerald-500" />
-        <button type="submit" class="bg-slate-800 hover:bg-slate-700 rounded-xl px-4 font-semibold">Join</button>
+      <form id="formJoinRoom" class="max-w-sm mx-auto w-full flex flex-col gap-3">
+        <div class="gl-otp-row font-mono-gl">
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 1" data-otp="0" />
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 2" data-otp="1" />
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 3" data-otp="2" />
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 4" data-otp="3" />
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 5" data-otp="4" />
+          <input class="gl-otp-box otp-box" type="text" inputmode="text" maxlength="1" autocomplete="off" autocapitalize="characters" aria-label="Room code character 6" data-otp="5" />
+        </div>
+        <input id="inputRoomCode" type="hidden" maxlength="6" />
+        <button type="submit" class="gl-btn-ghost">Join room</button>
       </form>
 
-      <p id="landingError" class="text-rose-400 text-sm hidden"></p>
+      <p id="landingError" class="hidden max-w-sm mx-auto w-full text-sm flex items-center gap-2" style="color: var(--danger-bright)">
+        <svg class="icon shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+        <span id="landingErrorText"></span>
+      </p>
 
-      <p class="text-slate-600 text-xs max-w-sm text-center leading-relaxed">
+      <p class="max-w-sm mx-auto w-full text-xs text-center leading-relaxed" style="color: var(--text-faint)">
         "Anonymous" means no accounts or logs — the signaling server briefly sees connection IPs in memory only, never stored.
       </p>
     </section>
 
     <!-- ===================== SCREEN: Waiting room (room created, QR) ===================== -->
-    <section id="screen-waiting" class="hidden flex-1 flex flex-col items-center justify-center px-6 gap-5">
-      <p class="text-slate-400 text-sm">Share this code or QR with the other device</p>
-
-      <div id="qrCanvas" class="bg-white p-3 rounded-2xl"></div>
-
-      <div class="text-4xl font-mono font-bold tracking-[0.3em]" id="roomCodeDisplay">------</div>
-
-      <button id="btnCopyLink" class="text-sm text-emerald-400 underline">Copy join link</button>
-
-      <div class="flex items-center gap-2 text-slate-400 text-sm">
-        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-        Waiting for peer to join…
+    <section id="screen-waiting" class="hidden flex-1 flex flex-col items-center justify-center px-6 py-6 gap-6 min-h-0 overflow-y-auto">
+      <div class="flex flex-col items-center gap-3">
+        <div class="flex gap-1.5">
+          <span class="w-2 h-2 rounded-full animate-pulse" style="background: var(--accent-bright)"></span>
+          <span class="w-2 h-2 rounded-full animate-pulse" style="background: var(--accent-bright); animation-delay: .2s"></span>
+          <span class="w-2 h-2 rounded-full animate-pulse" style="background: var(--accent-bright); animation-delay: .4s"></span>
+        </div>
+        <p class="text-[15px] font-semibold">Waiting for the other person…</p>
       </div>
 
-      <button id="btnCancelWaiting" class="text-slate-500 text-sm underline">Cancel</button>
-    </section>
+      <div id="qrCanvas" class="p-4 rounded-2xl shadow-lg" style="background: #fbf8f2"></div>
 
-    <!-- ===================== SCREEN: Call ===================== -->
-    <section id="screen-call" class="hidden flex-1 flex flex-col">
-
-      <div class="relative flex-1 bg-black">
-        <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
-        <video id="localVideo" autoplay playsinline muted class="absolute bottom-4 right-4 w-28 h-40 rounded-lg object-cover border border-slate-700 shadow-lg"></video>
-
-        <div id="sasBadge" class="hidden absolute top-4 left-4 right-4 bg-slate-900/90 backdrop-blur rounded-xl px-4 py-3 text-xs">
-          <div class="text-slate-400 mb-1">Verification code — confirm it matches your peer's screen. If it doesn't, disconnect.</div>
-          <div id="sasCode" class="font-mono text-lg tracking-widest text-emerald-400">— — —</div>
+      <div class="flex flex-col items-center gap-2">
+        <span class="gl-label">or share this code</span>
+        <div class="gl-card px-5 py-3">
+          <div class="font-mono-gl text-2xl font-semibold tracking-widest" id="roomCodeDisplay">------</div>
         </div>
       </div>
 
-      <div class="flex items-center justify-center gap-4 py-4 bg-slate-950 border-t border-slate-800">
-        <button id="btnToggleMic" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">🎤</button>
-        <button id="btnToggleCam" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">📷</button>
-        <button id="btnSendFile" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-xl">📎</button>
-        <button id="btnEndCall" class="w-14 h-14 rounded-full bg-rose-600 flex items-center justify-center text-xl">✕</button>
+      <div class="w-full max-w-xs flex flex-col gap-2 mt-2">
+        <button id="btnCopyLink" class="gl-btn-ghost flex items-center justify-center gap-2">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="9" height="10" rx="4"/><rect x="13" y="7" width="9" height="10" rx="4"/><path d="M9 12h6"/></svg>
+          Copy join link
+        </button>
+        <button id="btnCancelWaiting" class="gl-btn-quiet">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ===================== SCREEN: Call ===================== -->
+    <section id="screen-call" class="hidden flex-1 flex flex-col min-h-0">
+
+      <div class="relative flex-1 min-h-0" style="background:#000">
+        <video id="remoteVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+        <video id="localVideo" autoplay playsinline muted class="absolute bottom-4 right-4 w-20 h-28 sm:w-28 sm:h-40 rounded-2xl object-cover shadow-lg" style="border: 1.5px solid var(--border-strong)"></video>
+
+        <div class="absolute top-0 left-0 right-0 px-4 pt-4 flex items-center justify-between safe-top">
+          <div class="gl-pill" style="background: rgba(0,0,0,.4); backdrop-filter: blur(8px)">
+            <span class="gl-dot" style="background: var(--accent-bright)"></span>
+            <span>Encrypted · P2P</span>
+          </div>
+        </div>
+
+        <!-- transient "connecting" cover shown until the RTCPeerConnection first reaches "connected" -->
+        <div id="connectingOverlay" class="hidden absolute inset-0 flex flex-col items-center justify-center text-center px-8" style="background: rgba(18,16,12,.9)">
+          <div class="relative w-20 h-20 mb-5 flex items-center justify-center">
+            <span class="absolute inset-0 rounded-full animate-ping" style="background: var(--accent-wash)"></span>
+            <span class="w-11 h-11 rounded-2xl flex items-center justify-center" style="background: var(--accent-wash); color: var(--accent-bright)">
+              <svg class="icon" style="width:1.4em;height:1.4em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="10" width="12" height="9" rx="2"/><path d="M8.5 10V7a3.5 3.5 0 0 1 7 0v3"/></svg>
+            </span>
+          </div>
+          <h2 class="text-lg font-bold mb-2">Connecting securely…</h2>
+          <p class="text-sm max-w-[240px]" style="color: var(--text-dim)">Setting up the encrypted, direct line. This only takes a moment.</p>
+        </div>
+
+        <div id="sasBadge" class="hidden absolute left-4 right-4 top-20 gl-card p-4" style="backdrop-filter: blur(16px); background: rgba(36,32,26,.92)">
+          <button id="btnSasClose" class="gl-close-btn absolute top-3 right-3" aria-label="Dismiss">
+            <svg class="icon" style="width:.85em;height:.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: var(--accent-wash); color: var(--accent-bright)">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+            </span>
+            <span class="text-sm font-semibold">Verify it's really them</span>
+          </div>
+          <div id="sasCode" class="font-mono-gl text-2xl font-semibold tracking-widest text-center my-3">— — —</div>
+          <p class="text-xs text-center leading-relaxed mb-3" style="color: var(--text-dim)">Read this aloud. If it matches on both screens, no one is listening in.</p>
+          <div class="flex gap-2">
+            <button id="btnSasReject" class="flex-1 py-2.5 rounded-xl text-xs font-semibold" style="border: 1px solid var(--border-strong); color: var(--text-dim)">Doesn't match</button>
+            <button id="btnSasConfirm" class="flex-[1.4] py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5" style="background: var(--accent); color: var(--accent-ink)">
+              <svg class="icon" style="width:.85em;height:.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+              It matches
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-center flex-wrap gap-2 sm:gap-3 py-3 px-2 safe-bottom" style="background: var(--sheet); border-top: 1px solid var(--border)">
+        <button id="btnToggleMic" class="gl-ctrl-btn touch-manipulation" aria-label="Toggle microphone" title="Mute microphone">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
+        </button>
+        <button id="btnToggleCam" class="gl-ctrl-btn touch-manipulation" aria-label="Toggle camera" title="Turn off camera">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="3"/><path d="M16 10.5 22 7v10l-6-3.5"/></svg>
+        </button>
+        <button id="btnSwitchDevice" class="gl-ctrl-btn touch-manipulation" aria-label="Switch camera or microphone" title="Switch camera / microphone">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 4v4h-4"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 20v-4h4"/></svg>
+        </button>
+        <button id="btnSendFile" class="gl-ctrl-btn touch-manipulation" aria-label="Send a file" title="Send a file">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5 12.5 20a5 5 0 0 1-7-7L14 4.5a3.5 3.5 0 0 1 5 5L10.5 18a2 2 0 0 1-3-3L15 7"/></svg>
+        </button>
+        <button id="btnToggleChat" class="gl-ctrl-btn touch-manipulation relative" aria-label="Toggle chat" title="Chat">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>
+          <span id="chatUnreadBadge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center" style="background: var(--accent); color: var(--accent-ink)">0</span>
+        </button>
+        <button id="btnEndCall" class="gl-ctrl-btn end-call touch-manipulation" aria-label="End call" title="End call">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
       </div>
 
       <input type="file" id="fileInput" class="hidden" multiple />
@@ -101,27 +245,78 @@
   </main>
 </div>
 
-<!-- ===================== File transfer popup (centered overlay) ===================== -->
-<div id="transferOverlay" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6">
-  <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4">
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="font-semibold text-sm">File Transfers</h3>
-      <button id="btnCloseTransfers" class="text-slate-400 hover:text-slate-200 text-lg leading-none">✕</button>
+<!-- ===================== Device switcher popup ===================== -->
+<div id="deviceOverlay" class="hidden fixed inset-0 z-50 flex items-end justify-center" style="background: rgba(0,0,0,.6)">
+  <div class="w-full sm:max-w-sm gl-sheet rounded-t-3xl sm:rounded-3xl p-5 pb-8 safe-bottom">
+    <div class="gl-sheet-handle mb-4 sm:hidden"></div>
+    <div class="flex items-center justify-between mb-5">
+      <h3 class="font-bold text-lg">Devices</h3>
+      <button id="btnCloseDevice" class="gl-close-btn" aria-label="Close">
+        <svg class="icon" style="width:.85em;height:.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
-    <div id="transfers" class="max-h-[60vh] overflow-y-auto space-y-2"></div>
+    <label class="gl-label block mb-2">Camera</label>
+    <select id="selectCamera" class="gl-select mb-4"></select>
+    <label class="gl-label block mb-2">Microphone</label>
+    <select id="selectMic" class="gl-select"></select>
+    <p id="deviceSwitchError" class="hidden text-xs mt-3" style="color: var(--danger-bright)"></p>
+  </div>
+</div>
+
+<!-- ===================== Chat panel ===================== -->
+<div id="chatOverlay" class="hidden fixed inset-0 z-50 flex items-end justify-center" style="background: rgba(0,0,0,.6)">
+  <div class="w-full sm:max-w-sm h-[75vh] gl-sheet rounded-t-3xl sm:rounded-3xl flex flex-col safe-bottom">
+    <div class="px-5 pt-3 pb-4" style="border-bottom: 1px solid var(--border)">
+      <div class="gl-sheet-handle mb-3 sm:hidden"></div>
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-lg">Chat</h3>
+        <button id="btnCloseChat" class="gl-close-btn" aria-label="Close">
+          <svg class="icon" style="width:.85em;height:.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="text-center py-2">
+      <span class="text-[11px] font-mono-gl" style="color: var(--text-faint)">messages are end-to-end encrypted</span>
+    </div>
+    <div id="chatMessages" class="flex-1 overflow-y-auto px-4 pb-3 space-y-2 text-sm"></div>
+    <form id="formChatSend" class="flex items-center gap-2 p-3" style="border-top: 1px solid var(--border)">
+      <input id="inputChatMessage" type="text" autocomplete="off" placeholder="Message" maxlength="2000" class="gl-input flex-1 text-base sm:text-sm" />
+      <button type="submit" class="touch-manipulation w-11 h-11 shrink-0 rounded-full flex items-center justify-center" style="background: var(--accent); color: var(--accent-ink)" aria-label="Send">
+        <svg class="icon" style="width:1.1em;height:1.1em" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== File transfer popup ===================== -->
+<div id="transferOverlay" class="hidden fixed inset-0 z-50 flex items-end justify-center" style="background: rgba(0,0,0,.6)">
+  <div class="w-full sm:max-w-sm gl-sheet rounded-t-3xl sm:rounded-3xl p-5 pb-8 safe-bottom max-h-[80vh] flex flex-col">
+    <div class="gl-sheet-handle mb-3 sm:hidden"></div>
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-lg">Files</h3>
+      <button id="btnCloseTransfers" class="gl-close-btn" aria-label="Close">
+        <svg class="icon" style="width:.85em;height:.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div id="transfers" class="flex-1 overflow-y-auto space-y-3"></div>
   </div>
 </div>
 
 <template id="transferItemTemplate">
-  <div class="transfer-item bg-slate-900 rounded-lg px-3 py-2 text-xs">
-    <div class="flex justify-between mb-1">
-      <span class="transfer-name truncate max-w-[70%]"></span>
-      <span class="transfer-pct text-slate-400">0%</span>
+  <div class="transfer-item gl-card p-3">
+    <div class="flex items-center gap-3 mb-2">
+      <span class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style="background: var(--surface); color: var(--text-dim)">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/></svg>
+      </span>
+      <span class="flex-1 min-w-0">
+        <span class="transfer-name block text-sm font-semibold truncate"></span>
+        <span class="transfer-pct block text-xs font-mono-gl" style="color: var(--text-faint)">0%</span>
+      </span>
     </div>
-    <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-      <div class="transfer-bar h-full bg-emerald-500 rounded-full" style="width:0%"></div>
+    <div class="h-1.5 rounded-full overflow-hidden" style="background: var(--surface)">
+      <div class="transfer-bar h-full rounded-full" style="width:0%; background: var(--accent)"></div>
     </div>
-    <div class="transfer-action mt-1"></div>
+    <div class="transfer-action mt-2 text-xs"></div>
   </div>
 </template>
 

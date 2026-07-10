@@ -11,12 +11,16 @@ const LARGE_FILE_WARNING_BYTES = 750 * 1024 * 1024;
 // DOM refs
 // ---------------------------------------------------------------------------
 const statusBadgeEl = document.getElementById('statusBadge');
+const statusDotEl = document.getElementById('statusDot');
+const statusTextEl = document.getElementById('statusText');
 
 const screenLandingEl = document.getElementById('screen-landing');
 const btnCreateRoomEl = document.getElementById('btnCreateRoom');
 const formJoinRoomEl = document.getElementById('formJoinRoom');
 const inputRoomCodeEl = document.getElementById('inputRoomCode');
 const landingErrorEl = document.getElementById('landingError');
+const landingErrorTextEl = document.getElementById('landingErrorText');
+const otpBoxEls = Array.from(document.querySelectorAll('.otp-box'));
 
 const screenWaitingEl = document.getElementById('screen-waiting');
 const qrCanvasEl = document.getElementById('qrCanvas');
@@ -27,10 +31,15 @@ const btnCancelWaitingEl = document.getElementById('btnCancelWaiting');
 const screenCallEl = document.getElementById('screen-call');
 const remoteVideoEl = document.getElementById('remoteVideo');
 const localVideoEl = document.getElementById('localVideo');
+const connectingOverlayEl = document.getElementById('connectingOverlay');
 const sasBadgeEl = document.getElementById('sasBadge');
 const sasCodeEl = document.getElementById('sasCode');
+const btnSasCloseEl = document.getElementById('btnSasClose');
+const btnSasConfirmEl = document.getElementById('btnSasConfirm');
+const btnSasRejectEl = document.getElementById('btnSasReject');
 const btnToggleMicEl = document.getElementById('btnToggleMic');
 const btnToggleCamEl = document.getElementById('btnToggleCam');
+const btnSwitchDeviceEl = document.getElementById('btnSwitchDevice');
 const btnSendFileEl = document.getElementById('btnSendFile');
 const btnEndCallEl = document.getElementById('btnEndCall');
 const fileInputEl = document.getElementById('fileInput');
@@ -38,6 +47,20 @@ const transfersEl = document.getElementById('transfers');
 const transferItemTemplateEl = document.getElementById('transferItemTemplate');
 const transferOverlayEl = document.getElementById('transferOverlay');
 const btnCloseTransfersEl = document.getElementById('btnCloseTransfers');
+
+const deviceOverlayEl = document.getElementById('deviceOverlay');
+const btnCloseDeviceEl = document.getElementById('btnCloseDevice');
+const selectCameraEl = document.getElementById('selectCamera');
+const selectMicEl = document.getElementById('selectMic');
+const deviceSwitchErrorEl = document.getElementById('deviceSwitchError');
+
+const btnToggleChatEl = document.getElementById('btnToggleChat');
+const chatUnreadBadgeEl = document.getElementById('chatUnreadBadge');
+const chatOverlayEl = document.getElementById('chatOverlay');
+const chatMessagesEl = document.getElementById('chatMessages');
+const btnCloseChatEl = document.getElementById('btnCloseChat');
+const formChatSendEl = document.getElementById('formChatSend');
+const inputChatMessageEl = document.getElementById('inputChatMessage');
 
 // ---------------------------------------------------------------------------
 // State
@@ -67,6 +90,9 @@ let currentSend = null;
 let receiveState = null;
 let lastRenderedPct = {};
 
+let chatOpen = false;
+let chatUnreadCount = 0;
+
 // ---------------------------------------------------------------------------
 // Screen / status UI
 // ---------------------------------------------------------------------------
@@ -77,7 +103,19 @@ function showScreen(name) {
 }
 
 function setStatusText(text) {
-  statusBadgeEl.textContent = text;
+  statusTextEl.textContent = text;
+}
+
+const STATUS_DOT_COLORS = {
+  idle: '#6f675a',
+  warn: '#eab308',
+  good: '#2fb888',
+  bad: '#e0616b',
+};
+
+function setStatusDot(kind) {
+  statusDotEl.style.background = STATUS_DOT_COLORS[kind] || STATUS_DOT_COLORS.idle;
+  statusDotEl.classList.toggle('animate-pulse', kind === 'good' || kind === 'warn');
 }
 
 function updateConnectionStatus(state) {
@@ -89,7 +127,16 @@ function updateConnectionStatus(state) {
     failed: 'Connection failed',
     closed: 'Call ended',
   };
+  const dotKind = {
+    new: 'warn',
+    connecting: 'warn',
+    connected: 'good',
+    disconnected: 'warn',
+    failed: 'bad',
+    closed: 'idle',
+  };
   setStatusText(map[state] || state || 'idle');
+  setStatusDot(dotKind[state] || 'idle');
 }
 
 function showLandingError(reason) {
@@ -98,20 +145,66 @@ function showLandingError(reason) {
     'room-full': 'That room already has two people in it.',
     'rate-limited': 'Too many attempts — please wait a moment.',
   };
-  landingErrorEl.textContent = messages[reason] || 'Something went wrong.';
+  landingErrorTextEl.textContent = messages[reason] || 'Something went wrong.';
   landingErrorEl.classList.remove('hidden');
+  otpBoxEls.forEach((b) => b.classList.add('error'));
   showScreen('landing');
 }
+
+// ---------------------------------------------------------------------------
+// Room code entry (6 individual boxes, synced into the hidden #inputRoomCode
+// that the join-form submit handler reads)
+// ---------------------------------------------------------------------------
+function syncOtpValue() {
+  inputRoomCodeEl.value = otpBoxEls.map((b) => b.value).join('').toUpperCase();
+}
+
+function clearOtpError() {
+  landingErrorEl.classList.add('hidden');
+  otpBoxEls.forEach((b) => b.classList.remove('error'));
+}
+
+function resetOtpBoxes() {
+  otpBoxEls.forEach((b) => { b.value = ''; b.classList.remove('error'); });
+  inputRoomCodeEl.value = '';
+}
+
+otpBoxEls.forEach((box, i) => {
+  box.addEventListener('input', () => {
+    box.value = box.value.replace(/[^a-zA-Z0-9]/g, '').slice(-1).toUpperCase();
+    clearOtpError();
+    syncOtpValue();
+    if (box.value && i < otpBoxEls.length - 1) otpBoxEls[i + 1].focus();
+  });
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && !box.value && i > 0) {
+      otpBoxEls[i - 1].focus();
+      otpBoxEls[i - 1].value = '';
+      syncOtpValue();
+    }
+  });
+  box.addEventListener('paste', (e) => {
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text) return;
+    e.preventDefault();
+    const chars = text.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, otpBoxEls.length).split('');
+    chars.forEach((c, idx) => { if (otpBoxEls[idx]) otpBoxEls[idx].value = c; });
+    clearOtpError();
+    syncOtpValue();
+    const next = otpBoxEls[Math.min(chars.length, otpBoxEls.length - 1)];
+    if (next) next.focus();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Room code / QR
 // ---------------------------------------------------------------------------
 function renderRoomCodeUI(rid) {
-  roomCodeDisplayEl.textContent = rid;
+  roomCodeDisplayEl.textContent = rid.length === 6 ? `${rid.slice(0, 3)} · ${rid.slice(3)}` : rid;
   qrCanvasEl.innerHTML = '';
   pendingJoinUrl = `${location.origin}/?room=${rid}`;
   // eslint-disable-next-line no-undef
-  new QRCode(qrCanvasEl, { text: pendingJoinUrl, width: 200, height: 200 });
+  new QRCode(qrCanvasEl, { text: pendingJoinUrl, width: 200, height: 200, colorDark: '#1c1915', colorLight: '#fbf8f2' });
 }
 
 btnCopyLinkEl.addEventListener('click', async () => {
@@ -130,13 +223,15 @@ btnCancelWaitingEl.addEventListener('click', () => {
   history.replaceState(null, '', '/');
   showScreen('landing');
   setStatusText('idle');
+  setStatusDot('idle');
+  resetOtpBoxes();
 });
 
 // ---------------------------------------------------------------------------
 // Landing actions
 // ---------------------------------------------------------------------------
 btnCreateRoomEl.addEventListener('click', () => {
-  landingErrorEl.classList.add('hidden');
+  clearOtpError();
   socket.emit('create-room');
 });
 
@@ -175,10 +270,12 @@ socket.on('peer-left', () => {
   teardownCall();
   if (roomId) {
     setStatusText('Peer disconnected — waiting to reconnect…');
+    setStatusDot('warn');
     showScreen('waiting');
     renderRoomCodeUI(roomId);
   } else {
     showScreen('landing');
+    resetOtpBoxes();
   }
 });
 
@@ -187,7 +284,8 @@ socket.on('room-expired', () => {
   history.replaceState(null, '', '/');
   teardownCall();
   showScreen('landing');
-  landingErrorEl.textContent = 'This room code expired after sitting idle. Create a new one.';
+  resetOtpBoxes();
+  landingErrorTextEl.textContent = 'This room code expired after sitting idle. Create a new one.';
   landingErrorEl.classList.remove('hidden');
 });
 
@@ -252,6 +350,8 @@ function drainPendingCandidates() {
 async function initCallSession(isInitiator) {
   showScreen('call');
   setStatusText('Connecting…');
+  setStatusDot('warn');
+  connectingOverlayEl.classList.remove('hidden');
   await acquireLocalMedia();
   createPeerConnection();
 
@@ -282,6 +382,7 @@ async function acquireLocalMedia() {
   } catch (err) {
     localStream = null;
     setStatusText('Camera/mic unavailable — file transfer only');
+    setStatusDot('warn');
   }
 }
 
@@ -313,9 +414,12 @@ function createPeerConnection() {
   pc.onconnectionstatechange = () => {
     if (!pc) return;
     updateConnectionStatus(pc.connectionState);
-    if (pc.connectionState === 'connected' && !sasComputed) {
-      sasComputed = true;
-      computeAndDisplaySAS();
+    if (pc.connectionState === 'connected') {
+      connectingOverlayEl.classList.add('hidden');
+      if (!sasComputed) {
+        sasComputed = true;
+        computeAndDisplaySAS();
+      }
     }
   };
 
@@ -348,8 +452,11 @@ function teardownCall() {
   remoteDescSet = false;
   localVideoEl.srcObject = null;
   remoteVideoEl.srcObject = null;
+  connectingOverlayEl.classList.add('hidden');
   hideSAS();
   resetTransferState();
+  resetChatState();
+  closeDeviceSwitcher();
 }
 
 btnEndCallEl.addEventListener('click', () => {
@@ -359,7 +466,17 @@ btnEndCallEl.addEventListener('click', () => {
   history.replaceState(null, '', '/');
   showScreen('landing');
   setStatusText('idle');
+  setStatusDot('idle');
+  resetOtpBoxes();
 });
+
+// ---------------------------------------------------------------------------
+// SAS card actions — "It matches" / close both dismiss; "Doesn't match" ends
+// the call outright since a mismatch means someone may be intercepting it.
+// ---------------------------------------------------------------------------
+btnSasCloseEl.addEventListener('click', hideSAS);
+btnSasConfirmEl.addEventListener('click', hideSAS);
+btnSasRejectEl.addEventListener('click', () => btnEndCallEl.click());
 
 // ---------------------------------------------------------------------------
 // Session fingerprint (SAS) verification
@@ -402,17 +519,87 @@ btnToggleMicEl.addEventListener('click', () => {
   if (!localStream) return;
   micEnabled = !micEnabled;
   localStream.getAudioTracks().forEach((t) => { t.enabled = micEnabled; });
-  btnToggleMicEl.classList.toggle('bg-rose-600', !micEnabled);
-  btnToggleMicEl.classList.toggle('bg-slate-800', micEnabled);
+  btnToggleMicEl.classList.toggle('muted', !micEnabled);
 });
 
 btnToggleCamEl.addEventListener('click', () => {
   if (!localStream) return;
   camEnabled = !camEnabled;
   localStream.getVideoTracks().forEach((t) => { t.enabled = camEnabled; });
-  btnToggleCamEl.classList.toggle('bg-rose-600', !camEnabled);
-  btnToggleCamEl.classList.toggle('bg-slate-800', camEnabled);
+  btnToggleCamEl.classList.toggle('muted', !camEnabled);
 });
+
+// ---------------------------------------------------------------------------
+// Camera / microphone device switching
+// ---------------------------------------------------------------------------
+btnSwitchDeviceEl.addEventListener('click', () => {
+  if (!localStream) return;
+  openDeviceSwitcher();
+});
+
+btnCloseDeviceEl.addEventListener('click', closeDeviceSwitcher);
+
+async function openDeviceSwitcher() {
+  deviceSwitchErrorEl.classList.add('hidden');
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const currentVideoId = localStream?.getVideoTracks()[0]?.getSettings().deviceId;
+    const currentAudioId = localStream?.getAudioTracks()[0]?.getSettings().deviceId;
+    populateDeviceSelect(selectCameraEl, devices.filter((d) => d.kind === 'videoinput'), currentVideoId, 'Camera');
+    populateDeviceSelect(selectMicEl, devices.filter((d) => d.kind === 'audioinput'), currentAudioId, 'Microphone');
+    deviceOverlayEl.classList.remove('hidden');
+  } catch (err) {
+    // enumerateDevices failed (unsupported/blocked) — nothing to switch to
+  }
+}
+
+function closeDeviceSwitcher() {
+  deviceOverlayEl.classList.add('hidden');
+}
+
+function populateDeviceSelect(selectEl, devices, currentId, fallbackLabel) {
+  selectEl.innerHTML = '';
+  devices.forEach((d, i) => {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `${fallbackLabel} ${i + 1}`;
+    if (d.deviceId === currentId) opt.selected = true;
+    selectEl.appendChild(opt);
+  });
+}
+
+selectCameraEl.addEventListener('change', () => switchDevice('video', selectCameraEl.value));
+selectMicEl.addEventListener('change', () => switchDevice('audio', selectMicEl.value));
+
+async function switchDevice(kind, deviceId) {
+  if (!deviceId) return;
+  deviceSwitchErrorEl.classList.add('hidden');
+  try {
+    const constraints = kind === 'video'
+      ? { video: { deviceId: { exact: deviceId } } }
+      : { audio: { deviceId: { exact: deviceId } } };
+    const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const newTrack = kind === 'video' ? newStream.getVideoTracks()[0] : newStream.getAudioTracks()[0];
+
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === kind);
+      if (sender) await sender.replaceTrack(newTrack);
+    }
+
+    const oldTracks = kind === 'video' ? localStream.getVideoTracks() : localStream.getAudioTracks();
+    oldTracks.forEach((t) => {
+      localStream.removeTrack(t);
+      try { t.stop(); } catch (err) { /* noop */ }
+    });
+
+    newTrack.enabled = kind === 'video' ? camEnabled : micEnabled;
+    localStream.addTrack(newTrack);
+    localVideoEl.srcObject = localStream;
+  } catch (err) {
+    deviceSwitchErrorEl.textContent = `Couldn't switch ${kind === 'video' ? 'camera' : 'microphone'} — device may be in use elsewhere.`;
+    deviceSwitchErrorEl.classList.remove('hidden');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Chunked file transfer
@@ -519,6 +706,13 @@ function handleDataChannelMessage(event) {
         removeTransferItem(msg.transferId);
         receiveState = null;
       }
+    } else if (msg.type === 'chat') {
+      appendChatMessage(msg.text, 'in');
+      if (!chatOpen) {
+        chatUnreadCount += 1;
+        chatUnreadBadgeEl.textContent = chatUnreadCount > 9 ? '9+' : String(chatUnreadCount);
+        chatUnreadBadgeEl.classList.remove('hidden');
+      }
     }
     return;
   }
@@ -576,11 +770,13 @@ function markTransferComplete(transferId, url, name, direction) {
     a.href = url;
     a.download = name;
     a.textContent = 'Download';
-    a.className = 'text-emerald-400 underline';
+    a.className = 'font-semibold';
+    a.style.color = 'var(--accent-bright)';
     action.appendChild(a);
   } else {
     action.textContent = 'Sent';
-    action.className = 'transfer-action mt-1 text-slate-500';
+    action.className = 'transfer-action mt-2 text-xs';
+    action.style.color = 'var(--text-faint)';
   }
 }
 
@@ -605,6 +801,59 @@ function resetTransferState() {
   lastRenderedPct = {};
   transfersEl.innerHTML = '';
   hideTransferOverlay();
+}
+
+// ---------------------------------------------------------------------------
+// Text chat (fallback communication channel over the same data channel —
+// useful even when the connection is still negotiating, or just to type a
+// quick message alongside/instead of video)
+// ---------------------------------------------------------------------------
+btnToggleChatEl.addEventListener('click', () => {
+  if (chatOpen) closeChat(); else openChat();
+});
+
+btnCloseChatEl.addEventListener('click', closeChat);
+
+function openChat() {
+  chatOpen = true;
+  chatOverlayEl.classList.remove('hidden');
+  chatUnreadCount = 0;
+  chatUnreadBadgeEl.classList.add('hidden');
+  inputChatMessageEl.focus();
+}
+
+function closeChat() {
+  chatOpen = false;
+  chatOverlayEl.classList.add('hidden');
+}
+
+formChatSendEl.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = inputChatMessageEl.value.trim();
+  if (!text || !dataChannel || dataChannel.readyState !== 'open') return;
+  dataChannel.send(JSON.stringify({ type: 'chat', text }));
+  appendChatMessage(text, 'out');
+  inputChatMessageEl.value = '';
+});
+
+function appendChatMessage(text, direction) {
+  const bubble = document.createElement('div');
+  bubble.className = direction === 'out'
+    ? 'ml-auto max-w-[80%] rounded-2xl rounded-br-sm px-3 py-2 break-words font-medium'
+    : 'mr-auto max-w-[80%] rounded-2xl rounded-bl-sm px-3 py-2 break-words';
+  bubble.style.background = direction === 'out' ? 'var(--accent)' : 'var(--surface)';
+  bubble.style.color = direction === 'out' ? 'var(--accent-ink)' : 'var(--text)';
+  bubble.textContent = text;
+  chatMessagesEl.appendChild(bubble);
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+}
+
+function resetChatState() {
+  chatOpen = false;
+  chatUnreadCount = 0;
+  chatMessagesEl.innerHTML = '';
+  chatUnreadBadgeEl.classList.add('hidden');
+  chatOverlayEl.classList.add('hidden');
 }
 
 // ---------------------------------------------------------------------------
