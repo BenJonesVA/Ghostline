@@ -85,12 +85,12 @@
 <div class="app-shell flex flex-col safe-top safe-bottom overflow-hidden">
 
   <header class="px-4 py-3 flex items-center justify-between border-b" style="border-color: var(--border)">
-    <div class="flex items-center gap-2">
+    <button type="button" id="btnLogoHome" class="flex items-center gap-2 bg-transparent border-none p-0 cursor-pointer" aria-label="Ghostline home">
       <span class="w-7 h-7 rounded-lg flex items-center justify-center" style="background: var(--accent-wash); color: var(--accent-bright)">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/></svg>
       </span>
       <h1 class="font-semibold tracking-tight text-[15px]">Ghostline</h1>
-    </div>
+    </button>
     <div id="statusBadge" class="gl-pill">
       <span id="statusDot" class="gl-dot" style="background:#6f675a"></span>
       <span id="statusText">idle</span>

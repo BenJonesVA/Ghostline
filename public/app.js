@@ -10,6 +10,7 @@ const LARGE_FILE_WARNING_BYTES = 750 * 1024 * 1024;
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
+const btnLogoHomeEl = document.getElementById('btnLogoHome');
 const statusBadgeEl = document.getElementById('statusBadge');
 const statusDotEl = document.getElementById('statusDot');
 const statusTextEl = document.getElementById('statusText');
@@ -218,6 +219,19 @@ btnCopyLinkEl.addEventListener('click', async () => {
 });
 
 btnCancelWaitingEl.addEventListener('click', () => {
+  if (roomId) socket.emit('leave-room', { roomId });
+  roomId = null;
+  history.replaceState(null, '', '/');
+  showScreen('landing');
+  setStatusText('idle');
+  setStatusDot('idle');
+  resetOtpBoxes();
+});
+
+// Logo — always returns to the landing screen, tearing down an in-progress
+// call/waiting-room first so it doesn't leave a dangling peer connection.
+btnLogoHomeEl.addEventListener('click', () => {
+  if (!screenCallEl.classList.contains('hidden')) teardownCall();
   if (roomId) socket.emit('leave-room', { roomId });
   roomId = null;
   history.replaceState(null, '', '/');
