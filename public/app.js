@@ -7,6 +7,15 @@ const CHUNK_SIZE = 16 * 1024; // 16KB — safest interoperable size across mobil
 const BUFFERED_AMOUNT_LOW_THRESHOLD = 1 * 1024 * 1024; // 1MB backpressure ceiling
 const LARGE_FILE_WARNING_BYTES = 750 * 1024 * 1024;
 
+// Installability only (see sw.js) — not used for offline caching.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // non-critical — app works fully without it, just not installable
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
