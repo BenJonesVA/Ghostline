@@ -6,6 +6,31 @@
 const CHUNK_SIZE = 16 * 1024; // 16KB — safest interoperable size across mobile Safari/WebKit
 const BUFFERED_AMOUNT_LOW_THRESHOLD = 1 * 1024 * 1024; // 1MB backpressure ceiling
 const LARGE_FILE_WARNING_BYTES = 750 * 1024 * 1024;
+// Hard ceiling, enforced (not just a UI warning) — a malicious peer could
+// otherwise claim a small size in file-meta and keep streaming chunks past
+// it to exhaust memory, since received bytes are buffered in memory until
+// file-complete. Checked against both the declared size and actual received
+// bytes so understating size doesn't bypass it.
+const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
+
+function sanitizeFileName(name) {
+  const stripped = String(name || 'file')
+    .replace(/[\/\\]/g, '_')
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .trim();
+  return stripped.slice(0, 200) || 'file';
+}
+
+function sanitizeMimeType(mimeType) {
+  return typeof mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(mimeType)
+    ? mimeType
+    : 'application/octet-stream';
+}
+
+function sendDataChannelMessage(msg) {
+  if (!dataChannel || dataChannel.readyState !== 'open') return;
+  dataChannel.send(JSON.stringify(msg));
+}
 
 // Installability only (see sw.js) — not used for offline caching.
 if ('serviceWorker' in navigator) {
@@ -733,15 +758,22 @@ function handleDataChannelMessage(event) {
     try { msg = JSON.parse(event.data); } catch (err) { return; }
 
     if (msg.type === 'file-meta') {
+      const name = sanitizeFileName(msg.name);
+      if (typeof msg.size !== 'number' || msg.size < 0 || msg.size > MAX_FILE_BYTES) {
+        addTransferItem(msg.transferId, name, 'in');
+        markTransferError(msg.transferId, 'File too large — rejected');
+        sendDataChannelMessage({ type: 'file-cancel', transferId: msg.transferId });
+        return;
+      }
       receiveState = {
         transferId: msg.transferId,
-        name: msg.name,
+        name,
         size: msg.size,
-        mimeType: msg.mimeType,
+        mimeType: sanitizeMimeType(msg.mimeType),
         chunks: [],
         received: 0,
       };
-      addTransferItem(msg.transferId, msg.name, 'in');
+      addTransferItem(msg.transferId, name, 'in');
       if (msg.size > LARGE_FILE_WARNING_BYTES) {
         markTransferWarning(msg.transferId, 'Large file — may fail on low-memory devices');
       }
@@ -768,8 +800,19 @@ function handleDataChannelMessage(event) {
   }
 
   if (!receiveState) return;
+  const nextReceived = receiveState.received + event.data.byteLength;
+  // Guards against a peer that understates `size` in file-meta (which passed
+  // the check there) and then keeps streaming past it — bound both by the
+  // declared size and the hard cap regardless of what was declared.
+  if (nextReceived > receiveState.size || nextReceived > MAX_FILE_BYTES) {
+    const transferId = receiveState.transferId;
+    receiveState = null;
+    markTransferError(transferId, 'Transfer aborted — exceeded declared size');
+    sendDataChannelMessage({ type: 'file-cancel', transferId });
+    return;
+  }
   receiveState.chunks.push(event.data);
-  receiveState.received += event.data.byteLength;
+  receiveState.received = nextReceived;
   updateTransferProgress(receiveState.transferId, receiveState.received / receiveState.size);
 }
 
@@ -842,6 +885,16 @@ function markTransferWarning(transferId, text) {
 function removeTransferItem(transferId) {
   const el = findTransferEl(transferId);
   if (el) el.remove();
+}
+
+function markTransferError(transferId, text) {
+  const el = findTransferEl(transferId);
+  if (!el) return;
+  const err = document.createElement('div');
+  err.className = 'mt-1';
+  err.style.color = 'var(--danger)';
+  err.textContent = text;
+  el.appendChild(err);
 }
 
 function resetTransferState() {

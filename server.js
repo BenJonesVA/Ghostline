@@ -15,6 +15,14 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || undefined;
 // signaling channel; it never touches media or file bytes (those are P2P).
 const MAX_SIGNALING_PAYLOAD_BYTES = 100 * 1024;
 
+// A weak TURN_SECRET undermines the entire HMAC credential scheme below —
+// fail fast at startup rather than silently accepting it (mirrors the
+// generation guidance already in .env.example: openssl rand -hex 32).
+if (process.env.TURN_SECRET && process.env.TURN_SECRET.length < 32) {
+  console.error('TURN_SECRET must be at least 32 characters (use: openssl rand -hex 32)');
+  process.exit(1);
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -178,6 +186,52 @@ function isRateLimited(socket) {
   return attempts.length > RATE_LIMIT_MAX_ATTEMPTS;
 }
 
+// Signal relay (offer/answer/ICE) had no throttling at all — a peer already
+// in a room could flood its counterpart. Generous enough that real ICE
+// trickling (which can legitimately emit many candidates in a burst) never
+// hits it.
+const RELAY_RATE_LIMIT_WINDOW_MS = 10_000;
+const RELAY_RATE_LIMIT_MAX_ATTEMPTS = 100;
+
+function isRelayRateLimited(socket) {
+  const now = Date.now();
+  const attempts = (socket.data.relayAttempts || []).filter((t) => now - t < RELAY_RATE_LIMIT_WINDOW_MS);
+  attempts.push(now);
+  socket.data.relayAttempts = attempts;
+  return attempts.length > RELAY_RATE_LIMIT_MAX_ATTEMPTS;
+}
+
+// Reconnecting resets the per-socket limiter above, so it alone doesn't stop
+// a client willing to churn connections from brute-forcing room codes or
+// spamming room creation. A global, non-keyed counter closes that gap without
+// retaining any per-client identity (no IP, no socket id) — consistent with
+// the per-socket limiter's own no-IP design.
+const GLOBAL_ATTEMPT_WINDOW_MS = 10_000;
+const GLOBAL_ATTEMPT_MAX_ATTEMPTS = 200;
+let globalAttempts = [];
+
+function isGloballyRateLimited() {
+  const now = Date.now();
+  globalAttempts = globalAttempts.filter((t) => now - t < GLOBAL_ATTEMPT_WINDOW_MS);
+  globalAttempts.push(now);
+  return globalAttempts.length > GLOBAL_ATTEMPT_MAX_ATTEMPTS;
+}
+
+// Defensive wrapper for socket event handlers. A thrown error inside a
+// listener has no surrounding try/catch anywhere up the call stack and would
+// otherwise crash the whole process (see the join-room/relay null-payload fix
+// below for a concrete example this guards against for future changes). No
+// error detail is logged, consistent with the zero-log design.
+function safe(handler) {
+  return (...args) => {
+    try {
+      handler(...args);
+    } catch (err) {
+      // swallowed intentionally — see comment above
+    }
+  };
+}
+
 function cleanupSocket(socket) {
   const roomId = socket.data.roomId;
   if (!roomId) return;
@@ -198,9 +252,10 @@ function cleanupSocket(socket) {
 
 io.on('connection', (socket) => {
   socket.data.attempts = [];
+  socket.data.relayAttempts = [];
 
-  socket.on('create-room', () => {
-    if (isRateLimited(socket)) {
+  socket.on('create-room', safe(() => {
+    if (isRateLimited(socket) || isGloballyRateLimited()) {
       socket.emit('join-error', { reason: 'rate-limited' });
       return;
     }
@@ -211,13 +266,14 @@ io.on('connection', (socket) => {
     socket.data.roomId = roomId;
     socket.join(roomId);
     socket.emit('room-created', { roomId, iceServers: buildIceServers() });
-  });
+  }));
 
-  socket.on('join-room', ({ roomId } = {}) => {
-    if (isRateLimited(socket)) {
+  socket.on('join-room', safe((payload) => {
+    if (isRateLimited(socket) || isGloballyRateLimited()) {
       socket.emit('join-error', { reason: 'rate-limited' });
       return;
     }
+    const { roomId } = payload || {};
     const room = rooms.get(roomId);
     if (!room) {
       socket.emit('join-error', { reason: 'not-found' });
@@ -238,28 +294,29 @@ io.on('connection', (socket) => {
 
     socket.emit('join-success', { roomId, isInitiator: false, iceServers: buildIceServers() });
     socket.to(roomId).emit('peer-joined', { isInitiator: true });
-  });
+  }));
 
-  socket.on('leave-room', () => {
+  socket.on('leave-room', safe(() => {
     cleanupSocket(socket);
-  });
+  }));
 
   // Pure relay for the WebRTC handshake. Server never inspects SDP/candidate
   // contents beyond confirming the sender actually belongs to the room.
-  const relay = (event) => (payload = {}) => {
-    const { roomId } = payload;
+  const relay = (event) => safe((payload) => {
+    if (isRelayRateLimited(socket)) return;
+    const { roomId } = payload || {};
     const room = rooms.get(roomId);
     if (!room || !room.sockets.has(socket.id)) return;
     socket.to(roomId).emit(event, payload);
-  };
+  });
 
   socket.on('signal-offer', relay('signal-offer'));
   socket.on('signal-answer', relay('signal-answer'));
   socket.on('signal-ice', relay('signal-ice'));
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', safe(() => {
     cleanupSocket(socket);
-  });
+  }));
 });
 
 server.listen(PORT);
@@ -273,3 +330,12 @@ function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// Last-resort backstop. Every socket handler is already wrapped in safe()
+// above, but this guards against anything outside that path (e.g. a bug in
+// Socket.io/Express itself). State is entirely in-memory and ephemeral, so
+// exiting and letting `restart: unless-stopped` bring up a clean process is
+// safer than continuing after an exception whose blast radius is unknown. No
+// exception detail is logged, consistent with the zero-log design.
+process.on('uncaughtException', () => process.exit(1));
+process.on('unhandledRejection', () => process.exit(1));

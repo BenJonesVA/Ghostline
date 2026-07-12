@@ -36,7 +36,8 @@ Zero-log, anonymous, peer-to-peer video chat and file transfer in the browser. N
 - **Mic/camera mute toggle** (track-level, no renegotiation)
 - **Mobile-friendly** — the call screen fits the visible viewport on phones (no scrolling to see the video), a large touch-sized control bar (56px+ targets), and a responsive layout throughout
 - **Auto-expiring rooms** — idle or single-occupant rooms are purged after a TTL
-- **Per-socket rate limiting** on room create/join
+- **Rate limiting** on room create/join (per-socket, plus a global non-identifying throttle) and on signal relay, so a client can't brute-force room codes or flood a peer just by reconnecting
+- **Enforced file-transfer size cap** — checked against both the declared and actual received size, not just a UI warning
 - **Zero request logging** — no morgan/access logs, no IP-keyed state
 - **Strict CSP and security headers**, all static assets (Tailwind, QR library) vendored locally — no third-party script origins
 - **Optional self-hosted TURN** (via coturn), with time-limited HMAC credentials, so calls still connect when both peers are on different, restrictive networks (carrier-grade NAT, corporate firewalls)
@@ -52,10 +53,25 @@ Visit `http://localhost:3000`. Requires Node.js >= 20.
 
 ## Quick start (Docker)
 
+The app container publishes no port to the host at all — it's meant to sit
+behind [Nginx Proxy Manager](https://nginxproxymanager.com/) on a shared
+Docker network, not be reached directly. Create that network once (skip this
+if NPM's own compose file already creates it) and make sure NPM's container
+is attached to it too:
+
+```bash
+docker network create npm_shared
+```
+
+Then:
+
 ```bash
 cp .env.example .env   # edit as needed
 docker compose up -d
 ```
+
+In NPM, point the proxy host at `app:3000` (the Docker service/DNS name, not
+an IP or `localhost`) — this only resolves for containers on `npm_shared`.
 
 To also run a self-hosted TURN relay (coturn) for NAT traversal, set `TURN_URL` and `TURN_SECRET` in `.env` (see `.env.example`), then:
 
@@ -63,7 +79,7 @@ To also run a self-hosted TURN relay (coturn) for NAT traversal, set `TURN_URL` 
 docker compose --profile turn up -d
 ```
 
-coturn's config is rendered from `coturn/turnserver.conf.template` at container start using `TURN_SECRET`/`TURN_REALM` from `.env` — there's no separate file to copy or hand-edit.
+coturn's config is rendered from `coturn/turnserver.conf.template` at container start using `TURN_SECRET`/`TURN_REALM` from `.env` — there's no separate file to copy or hand-edit. `TURN_SECRET` must be at least 32 characters (`openssl rand -hex 32`); both the app and coturn refuse to start with a shorter one. coturn runs on its own Docker network, isolated from the app — they don't need to reach each other.
 
 ## Configuration
 
@@ -105,4 +121,8 @@ docker-compose.yml       App service + optional `turn` profile for coturn
 - The signaling server never inspects or stores SDP/ICE payloads beyond confirming the sender belongs to the room; it only relays them.
 - Signaling payloads are capped (100KB) to limit abuse — media, file, and chat bytes never touch the server, only peer-to-peer.
 - Transport is WebSocket-only (no long-polling fallback) to reduce attack surface and intermediary logging exposure.
-- TURN credentials are time-limited (HMAC, derived per session) when `TURN_SECRET` is configured, rather than a long-lived shared password. Static `TURN_USERNAME`/`TURN_CREDENTIAL` are visible to any connecting client via the ICE server payload — fine for trusted/self-hosted use, but prefer `TURN_SECRET` for an internet-facing deployment (see `coturn/turnserver.conf.example`).
+- TURN credentials are time-limited (HMAC, derived per session) when `TURN_SECRET` is configured, rather than a long-lived shared password. Static `TURN_USERNAME`/`TURN_CREDENTIAL` are visible to any connecting client via the ICE server payload — fine for trusted/self-hosted use, but prefer `TURN_SECRET` for an internet-facing deployment. Both the app and coturn refuse to start if `TURN_SECRET` is set but under 32 characters.
+- Received file transfers are capped at 2GB, enforced against both the declared and actual size — not just a UI warning — since a peer could otherwise understate the size and keep streaming past it.
+- Every socket event handler is wrapped so a malformed payload can't crash the whole signaling process; there's also a process-level backstop (`uncaughtException`/`unhandledRejection`) that exits cleanly rather than continuing in an unknown state — `restart: unless-stopped` brings it back up.
+- Containers run with `cap_drop: [ALL]`, `no-new-privileges`, a read-only root filesystem, and memory/CPU limits.
+- **Known accepted risks, not fixed by design**: env-var-based secrets (`TURN_SECRET`, etc.) are visible via `docker inspect`/`docker compose config` to anyone with Docker socket access on the host — a secrets manager would close this but is disproportionate for a self-hosted single-host deployment. coturn's own connection logs may include peer IPs (bounded to 1MB via the logging driver) — this is inherent to operating a TURN relay and distinct from the app's own zero-log guarantee. Room codes are 6 characters (~30 bits) from a 32-character alphabet; rate limiting (per-socket, per-relay, and a global non-identifying throttle) bounds brute-force feasibility without adding IP tracking, but widening the code itself would require UI changes not yet made.
