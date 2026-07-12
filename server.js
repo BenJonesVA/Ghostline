@@ -22,6 +22,16 @@ const io = new Server(server, {
     origin: ALLOWED_ORIGIN || true,
     methods: ['GET', 'POST'],
   },
+  // The `cors` option above only controls response headers, which browsers
+  // only enforce for XHR/fetch reads — it does nothing for the websocket
+  // transport this app uses exclusively, since WebSocket handshakes aren't
+  // subject to CORS at all. allowRequest is what actually rejects a
+  // handshake from a disallowed origin at the server, regardless of
+  // transport. Skipped entirely when ALLOWED_ORIGIN is unset (local/dev).
+  allowRequest: (req, callback) => {
+    if (!ALLOWED_ORIGIN) return callback(null, true);
+    callback(null, req.headers.origin === ALLOWED_ORIGIN);
+  },
   // websocket-only: no long-polling fallback. Removes an entire transport's
   // attack surface and request-logging exposure on intermediary proxies. Any
   // network hostile enough to block WebSocket already blocks the WebRTC UDP
@@ -253,3 +263,13 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT);
+
+// Node ignores SIGTERM by default when running as PID 1 (the container's
+// init process), so without an explicit handler `docker stop`/orchestrator
+// shutdowns never exit cleanly — they just burn the full stop timeout before
+// being SIGKILLed, dropping in-flight signaling instead of closing sockets.
+function shutdown() {
+  io.close(() => process.exit(0));
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
