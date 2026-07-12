@@ -57,12 +57,13 @@ cp .env.example .env   # edit as needed
 docker compose up -d
 ```
 
-To also run a self-hosted TURN relay (coturn) for NAT traversal:
+To also run a self-hosted TURN relay (coturn) for NAT traversal, set `TURN_URL` and `TURN_SECRET` in `.env` (see `.env.example`), then:
 
 ```bash
-cp coturn/turnserver.conf.example coturn/turnserver.conf   # edit realm/secret
 docker compose --profile turn up -d
 ```
+
+coturn's config is rendered from `coturn/turnserver.conf.template` at container start using `TURN_SECRET`/`TURN_REALM` from `.env` — there's no separate file to copy or hand-edit.
 
 ## Configuration
 
@@ -75,7 +76,8 @@ Set via `.env` (see `.env.example`):
 | `ALLOWED_ORIGIN` | *(none)* | Exact origin allowed for Socket.io CORS in production |
 | `ROOM_TTL_MS` | `600000` | How long an idle/single-occupant room lives before auto-expiring |
 | `TURN_URL` | *(none)* | TURN server URL(s), comma-separated; if unset, the app runs STUN-only |
-| `TURN_SECRET` | *(none)* | Shared secret for time-limited TURN credentials (coturn `use-auth-secret` mode) — preferred over static credentials |
+| `TURN_SECRET` | *(none)* | Shared secret for time-limited TURN credentials (coturn `use-auth-secret` mode) — preferred over static credentials. Required to run the `turn` profile; also used to render coturn's config |
+| `TURN_REALM` | `turn.local` | Realm coturn reports in its auth challenge. Only relevant when `TURN_SECRET` is set |
 | `TURN_USERNAME` | *(none)* | Static TURN username — used only if `TURN_SECRET` is unset |
 | `TURN_CREDENTIAL` | *(none)* | Static TURN credential — used only if `TURN_SECRET` is unset |
 
@@ -92,7 +94,8 @@ public/
 docs/
   screenshots/          README screenshots
 coturn/
-  turnserver.conf.example  Sample TURN config for NAT-traversal fallback
+  turnserver.conf.template  TURN config template for NAT-traversal fallback, rendered at container start
+  render-config.sh          Substitutes TURN_SECRET/TURN_REALM into the template before launching turnserver
 Dockerfile              Multi-stage build (deps -> runtime), runs as non-root `node` user
 docker-compose.yml       App service + optional `turn` profile for coturn
 ```

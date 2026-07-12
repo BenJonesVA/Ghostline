@@ -26,8 +26,17 @@ services:
   coturn:
     image: coturn/coturn:alpine
     profiles: ["turn"]
+    environment:
+      # Not required here at compose-parse time (would break `docker compose
+      # up` for the default `app`-only path even when the turn profile isn't
+      # used) — render-config.sh enforces this at container start instead,
+      # which only happens when this profile is actually invoked.
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_REALM: ${TURN_REALM:-turn.local}
+    entrypoint: ["/bin/sh", "/render-config.sh"]
     volumes:
-      - ./coturn/turnserver.conf.example:/etc/coturn/turnserver.conf:ro
+      - ./coturn/turnserver.conf.template:/etc/coturn/turnserver.conf.template:ro
+      - ./coturn/render-config.sh:/render-config.sh:ro
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"

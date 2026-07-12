@@ -1,0 +1,35 @@
+# coturn configuration template for Ghostline's optional TURN relay.
+#
+# This file is rendered into a real config at container start by
+# render-config.sh, substituting __TURN_SECRET__ and __TURN_REALM__ with the
+# values of the TURN_SECRET / TURN_REALM environment variables (set via
+# .env). There is nothing to copy or hand-edit here — set those two values
+# in .env and start with:
+#   docker compose --profile turn up -d
+#
+# TURN is only needed as a fallback for peers behind carrier-grade NAT where
+# direct/STUN connectivity fails. Without it, the app still works via STUN
+# alone on simpler networks.
+
+listening-port=3478
+fingerprint
+
+realm=__TURN_REALM__
+
+# --- Time-limited credentials (recommended for production) ------------------
+# server.js automatically switches to this mode whenever TURN_SECRET is set
+# in .env — it derives a fresh, short-lived HMAC username/password pair per
+# call instead of using a long-lived shared password.
+use-auth-secret
+static-auth-secret=__TURN_SECRET__
+
+# Relay port range — must also be opened on the host firewall / cloud
+# security group, or TURN relay will silently fail to establish media.
+min-port=49152
+max-port=49200
+
+# No verbose/access logging — keep this aligned with the app's zero-log policy.
+no-cli
+simple-log
+log-file=stdout
+verbose=false
