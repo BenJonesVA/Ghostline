@@ -26,6 +26,7 @@ const otpBoxEls = Array.from(document.querySelectorAll('.otp-box'));
 const screenWaitingEl = document.getElementById('screen-waiting');
 const qrCanvasEl = document.getElementById('qrCanvas');
 const roomCodeDisplayEl = document.getElementById('roomCodeDisplay');
+const btnShareQrEl = document.getElementById('btnShareQr');
 const btnCopyLinkEl = document.getElementById('btnCopyLink');
 const btnCancelWaitingEl = document.getElementById('btnCancelWaiting');
 
@@ -216,6 +217,32 @@ btnCopyLinkEl.addEventListener('click', async () => {
   } catch (err) {
     // clipboard API unavailable — non-critical
   }
+});
+
+// Only offer this where file sharing is actually possible (mobile Safari/
+// Chrome) — a button that silently does nothing is worse than no button.
+const shareFilesSupported = typeof navigator.share === 'function' && typeof navigator.canShare === 'function';
+btnShareQrEl.classList.toggle('hidden', !shareFilesSupported);
+
+btnShareQrEl.addEventListener('click', () => {
+  const canvas = qrCanvasEl.querySelector('canvas');
+  if (!canvas) return;
+  canvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const file = new File([blob], 'ghostline-room-code.png', { type: 'image/png' });
+    const shareText = `Join my Ghostline call: ${pendingJoinUrl}`;
+    try {
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Ghostline room code', text: shareText });
+      } else {
+        // Platform supports navigator.share but not file attachments — fall
+        // back to sharing the link alone rather than doing nothing.
+        await navigator.share({ title: 'Ghostline room code', text: shareText, url: pendingJoinUrl });
+      }
+    } catch (err) {
+      // user dismissed the share sheet — non-critical
+    }
+  }, 'image/png');
 });
 
 btnCancelWaitingEl.addEventListener('click', () => {
