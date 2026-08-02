@@ -4,7 +4,7 @@
 # The app is never published to the host at all; NPM reaches it by Docker DNS
 # name (the `app` service name below) over this network instead.
 networks:
-  #npm_shared:
+  npm_shared:
   #  external: true
   coturn_net:
     driver: bridge

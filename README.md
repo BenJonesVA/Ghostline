@@ -1,5 +1,11 @@
 # Ghostline
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](package.json)
+[![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![PWA](https://img.shields.io/badge/PWA-installable-5A0FC8?logo=pwa&logoColor=white)](public)
+[![Zero logs](https://img.shields.io/badge/logs-zero-black)](#security-notes)
+
 Zero-log, anonymous, peer-to-peer video chat and file transfer in the browser. No accounts, no database, no message or media storage — the server only exists to help two browsers find each other and exchange WebRTC handshake data.
 
 ## Screenshots
@@ -126,3 +132,7 @@ docker-compose.yml       App service + optional `turn` profile for coturn
 - Every socket event handler is wrapped so a malformed payload can't crash the whole signaling process; there's also a process-level backstop (`uncaughtException`/`unhandledRejection`) that exits cleanly rather than continuing in an unknown state — `restart: unless-stopped` brings it back up.
 - Containers run with `cap_drop: [ALL]`, `no-new-privileges`, a read-only root filesystem, and memory/CPU limits.
 - **Known accepted risks, not fixed by design**: env-var-based secrets (`TURN_SECRET`, etc.) are visible via `docker inspect`/`docker compose config` to anyone with Docker socket access on the host — a secrets manager would close this but is disproportionate for a self-hosted single-host deployment. coturn's own connection logs may include peer IPs (bounded to 1MB via the logging driver) — this is inherent to operating a TURN relay and distinct from the app's own zero-log guarantee. Room codes are 6 characters (~30 bits) from a 32-character alphabet; rate limiting (per-socket, per-relay, and a global non-identifying throttle) bounds brute-force feasibility without adding IP tracking, but widening the code itself would require UI changes not yet made.
+
+## License
+
+[MIT](LICENSE)

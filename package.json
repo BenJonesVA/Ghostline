@@ -2,6 +2,7 @@
   "name": "ghostline",
   "version": "1.0.0",
   "description": "Zero-log, anonymous, P2P WebRTC video chat and file transfer",
+  "license": "MIT",
   "private": true,
   "main": "server.js",
   "scripts": {
